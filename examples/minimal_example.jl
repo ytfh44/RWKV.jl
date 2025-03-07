@@ -8,6 +8,24 @@ using RWKV
 using NPZ
 using LinearAlgebra
 using Statistics
+using Tokenizers  # 需要安装Tokenizers.jl
+
+const tokenizer = Tokenizer.from_pretrained("gpt2")  # 示例使用GPT-2分词器
+
+function text_to_token(text)
+    return encode(tokenizer, text).ids[1]  # 简单取第一个token
+end
+
+function token_to_text(tokens)
+    return decode(tokenizer, tokens)
+end
+
+function sample(logits, temperature=1.0)
+    # 温度采样实现
+    logits = logits ./ temperature
+    probs = softmax(logits)
+    return rand(Categorical(probs))
+end
 
 """
 创建一个随机初始化的测试模型
@@ -129,6 +147,18 @@ function example_with_pretrained_model(model_file)
         println("  头尺寸: $(model.args.head_size)")
         println("  词汇表大小: $(model.args.vocab_size)")
         
+        # 添加推理示例
+        println("\n运行推理测试...")
+        test_token = 3  # 示例输入
+        logits = forward(model, test_token)
+        println("  输入token: $test_token")
+        println("  输出logits: ", logits[1:min(5, end)])  # 显示前5个logits
+        
+        # 添加生成示例
+        println("\n生成示例:")
+        generated = generate(model, "The", max_tokens=20)
+        println("生成结果: $generated")
+        
         return model
     catch e
         println("加载预训练模型失败: $e")
@@ -136,15 +166,52 @@ function example_with_pretrained_model(model_file)
     end
 end
 
-function main()
-    # 运行随机模型示例
-    example_with_random_model()
+# 添加生成函数
+function generate(model, prompt; max_tokens=20, temperature=0.9)
+    tokens = [text_to_token(prompt)]  # 需要实现文本编码
+    for _ in 1:max_tokens
+        logits = forward(model, last(tokens))
+        next_token = sample(logits, temperature)
+        push!(tokens, next_token)
+    end
+    return token_to_text(tokens)  # 需要实现文本解码
+end
+
+function load_model_from_pytorch(npz_file)
+    weights = npzread(npz_file)
+    params = Dict{String, Array{Float32}}()
     
-    # 尝试加载预训练模型（如果有的话）
-    # model_file = "/path/to/your/model.pth"  # 替换为你的模型路径
-    # if isfile(model_file)
-    #     example_with_pretrained_model(model_file)
-    # end
+    # 转换参数名称以匹配Julia实现
+    for (k, v) in weights
+        new_key = replace(k, "weight" => "weight")
+        new_key = replace(new_key, "_" => ".")
+        params[new_key] = convert(Array{Float32}, v)
+    end
+    
+    # 推断模型参数
+    n_layer = count(startswith("blocks."), keys(params)) ÷ 20  # 根据参数数量估算层数
+    n_embd = size(params["emb.weight"], 2)
+    vocab_size = size(params["emb.weight"], 1)
+    
+    args = ModelArgs(n_layer, n_embd, 0, 0, vocab_size)  # head参数需要根据实际调整
+    return RWKVModel(args, params, [LayerState(zeros(n_embd), nothing, zeros(0,0,0)) for _ in 1:n_layer])
+end
+
+function main()
+    # 初始化模型
+    model = example_with_pretrained_model("examples/assets/rwkv-4-pile-430m.npz")
+    
+    # 简单推理测试
+    test_text = "Hello"
+    token = text_to_token(test_text)
+    logits = forward(model, token)
+    println("输入: $test_text")
+    println("预测top5: ", sortperm(logits, rev=true)[1:5])
+    
+    # 生成测试
+    println("\n生成测试:")
+    generated = generate(model, "The future of AI", max_tokens=20)
+    println(generated)
 end
 
 # 运行主函数
