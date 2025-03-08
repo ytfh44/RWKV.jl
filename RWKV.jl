@@ -1,3 +1,32 @@
+module RWKV
+
+using LinearAlgebra
+using Statistics
+using Distributions
+
+export ModelArgs, LayerState, RWKVModel, forward, generate, load_model_from_pytorch
+
+# 模型参数结构体
+struct ModelArgs
+    n_layer::Int
+    n_embd::Int
+    n_head::Int
+    head_size::Int
+    vocab_size::Int
+    
+    # 构造函数，允许部分参数为0，后续推断
+    function ModelArgs(n_layer, n_embd, n_head=0, head_size=0, vocab_size=0)
+        # 如果n_head或head_size为0，尝试推断
+        if n_head == 0 && head_size == 0 && n_embd > 0
+            # RWKV7可能使用不同的头大小和数量，这里使用一个合理的默认值
+            head_size = 64  # 常见的头大小
+            n_head = div(n_embd, head_size)
+        end
+        
+        new(n_layer, n_embd, n_head, head_size, vocab_size)
+    end
+end
+
 mutable struct LayerState
     x_prev::Vector{Float32}
     v0::Union{Vector{Float32}, Nothing}
@@ -120,4 +149,41 @@ function group_norm(x::Array{Float32}, w::Array{Float32}, b::Array{Float32})
     σ = var(x_reshaped, dims=2) .+ 64e-5
     normalized = (x_reshaped .- μ) ./ sqrt.(σ)
     return normalized .* w' .+ b'
-end 
+end
+
+# 添加layer_norm函数
+function layer_norm(x::Vector{Float32}, w::Vector{Float32}, b::Vector{Float32})
+    μ = mean(x)
+    σ = std(x)
+    return w .* ((x .- μ) ./ (σ + 1e-5)) .+ b
+end
+
+# 添加channel_mixing函数
+function channel_mixing(model, layer_idx, x)
+    prefix = "blocks.$layer_idx.ffn."
+    p = model.params
+    
+    # 获取必要参数
+    mk = p[prefix*"time_mix_k"]
+    last_x = model.state[layer_idx+1].x_prev
+    
+    # 混合计算
+    xk = x + mk .* (last_x - x)
+    
+    # FFN计算
+    k = xk * p[prefix*"key.weight"]
+    v = xk * p[prefix*"value.weight"]
+    
+    # 激活函数
+    r = max.(k, 0.0).^2
+    
+    return x + r .* v
+end
+
+# 添加softmax函数
+function softmax(x::Vector{Float32})
+    exp_x = exp.(x .- maximum(x))
+    return exp_x ./ sum(exp_x)
+end
+
+end # 模块结束 

@@ -1,5 +1,5 @@
 name = "RWKV"
-uuid = "4b10dbc3-8f69-4c3e-9d61-8e29ea7eb8af"
+uuid = "e8c3f9d3-5c4c-4e9b-b8a1-0a0a8e5a8d2c"
 authors = ["Your Name <your.email@example.com>"]
 version = "0.1.0"
 
@@ -8,9 +8,13 @@ BSON = "fbb218c0-5317-5bc6-957e-2ee96dd4b1f0"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 
 [compat]
 julia = "1.6"
+BSON = "0.3"
+NPZ = "0.4"
+Distributions = "0.25"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
